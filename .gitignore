@@ -1,1 +1,3 @@
 .vagrant
+docker/data/rancher-server
+docker/data/registry/volumes

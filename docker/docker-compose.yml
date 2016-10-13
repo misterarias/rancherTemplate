@@ -1,0 +1,44 @@
+---
+version: '2'
+
+services:
+    rancher-server:
+        image: rancher/server:stable
+        ports:
+            - 8080:8080
+        links:
+            - registry
+        volumes:
+            - ./data/rancher-server:/var/lib/mysql
+        restart: always
+        networks:
+            - support_layer
+
+    registry:
+        image: registry:2
+        container_name: registry
+        ports:
+            - 5000:5000
+        restart: always
+        volumes:
+            - ./data/registry/volumes:/var/lib/registry
+            - ./data/registry/ssl:/ssl
+            - ./data/registry/auth:/auth
+        networks:
+            - support_layer
+        environment:
+            - REGISTRY_AUTH=htpasswd
+            - REGISTRY_AUTH_HTPASSWD_REALM=Registry Realm
+            - REGISTRY_AUTH_HTPASSWD_PATH=/auth/htpasswd
+            - REGISTRY_HTTP_TLS_CERTIFICATE=/ssl/certificates/mi.org.crt
+            - REGISTRY_HTTP_TLS_KEY=/ssl/private/mi.org.key
+
+networks:
+    # To be used by Rancher and the Docker Image Registry
+    support_layer:
+        driver: bridge
+        ipam:
+            driver: default
+            config:
+                - subnet: 192.168.69.0/20
+                  gateway: 192.168.69.1
