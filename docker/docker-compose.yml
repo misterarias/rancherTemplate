@@ -10,6 +10,7 @@ services:
             - registry
         volumes:
             - ./data/rancher-server:/var/lib/mysql
+            - ./data/registry/ssl/certificates/mi.org.crt:/ca.crt
         restart: always
         networks:
             - support_layer
