@@ -37,83 +37,26 @@ deploy_prefix = "#{deploy_target}-"
 
 Vagrant.configure(2) do |config|
 
-  deploy_params = {
-    :private_key_path => {
-      'prod' =>  '~/.ssh/clousr_prod_keys.pem', 'qa' => '~/.ssh/cluster-keys.pem'
-    },
-    :keypair_name => {
-      'prod' =>  'clousr_prod_keys', 'qa' => 'cluster-keys'
-    }
+  vbox_defaults = {
+    :cpus => 1, :ram_gbs => 1
   }
 
   # Despite the name, final machine ID is deploy_prefix + machine_name
   machines = {
     :rancherserver => {
       :vbox_ip => '192.168.69.2',
-      :elastic_ip => nil,
-      :associate_public_ip => true,
-      :region => 'eu-west-1',
-      :ami_id =>  {
-        'prod' => 'ami-7abd0209',  # Community Centos 7 image
-        'qa' => 'ami-7abd0209'
-      },
-      :ami_username => {
-        'prod' => 'centos', 'qa' => 'centos'
-      },
-      :ami_size => {
-        'prod' => 't2.small', 'qa' => 't2.small'
-      },
-      :subnet_id => {
-        'prod' => 'subnet-3608dd40', 'qa' => 'subnet-134d7464'
-      },
-      :availability_zone => {
-        'prod' => 'eu-west-1a', 'qa' => 'eu-west-1a'
-      },
-      :ami_security_groups => {
-        'prod' => [
-          'sg-fc6ac09b', # External access group
-          'sg-9745ecf0'  # VPC group
-        ],
-        'qa' => [
-          'sg-fe49099a', # default,
-          'sg-16229471', # external access
-        ]
-      },
       :bootstrap => {:bootstrap_file => "./rancher/server/bootstrap.sh" }
     },
     :rancheragent => {
-      :instances => 2, # I do not use this...
+      :instances => 2, # XXX:  use this...
       :vbox_ip => '192.168.69.100',
-      :elastic_ip => nil,
-      :associate_public_ip => true,
-      :region => 'eu-west-1',
-      :ami_id =>  {
-        'prod' => 'ami-7abd0209',  # Community Centos 7 image
-        'qa' => 'ami-7abd0209'
-      },
-      :ami_username => {
-        'prod' => 'centos', 'qa' => 'centos'
-      },
-      :ami_size => {
-        'prod' => 't2.small', 'qa' => 't2.small'
-      },
-      :subnet_id => {
-        'prod' => 'subnet-3608dd40', 'qa' => 'subnet-134d7464'
-      },
-      :availability_zone => {
-        'prod' => 'eu-west-1a', 'qa' => 'eu-west-1a'
-      },
-      :ami_security_groups => {
-        'prod' => [
-          'sg-fc6ac09b', # External access group
-          'sg-9745ecf0'  # VPC group
-        ],
-        'qa' => [
-          'sg-fe49099a', # default,
-          'sg-16229471', # external access
-        ]
-      },
       :bootstrap => {:bootstrap_file => "./rancher/agent/bootstrap.sh" }
+    },
+    :ansible => {
+      :vbox_ip => '192.168.69.11',
+      :secrets => true, # XXX Further customize
+      :bootstrap => {:bootstrap_file => "./ansible/bootstrap.sh",
+                     :files =>  ["./ansible/files"]}
     }
   }
 
@@ -152,46 +95,9 @@ Vagrant.configure(2) do |config|
       host.vm.box = "dummy"
       host.vm.synced_folder ".", "/vagrant", disabled:true
 
-      host.vm.provider :aws do |aws, override|
-
-        aws.tags = {
-          'Name' =>  "#{deploy_prefix}#{machine_name.to_s}"
-        }
-
-        # Execute the ./secret_export script to set these
-        aws.access_key_id = (ENV['AWS_ACCESS_KEY'] || '')
-        aws.secret_access_key = (ENV['AWS_SECRET_KEY'] || '')
-
-        # Required in CentOS/Amazon Linux
-        override.ssh.pty = true
-
-        aws.region = params[:region]
-
-        ## WARNING: Until I setup provisioning through a bastion, this needs to be truthy
-        aws.associate_public_ip = true # or params[:associate_public_ip]
-
-        aws.private_ip_address = params[:private_ip_address] or nil
-        aws.elastic_ip = params[:elastic_ip] or false
-
-        ### FLAVOR DEPENDENT VARIABLES
-        # Make sure the AZ matches the subnet !!
-        aws.subnet_id = params[:subnet_id][deploy_target]
-        aws.availability_zone = params[:availability_zone][deploy_target]
-        aws.instance_type = params[:ami_size][deploy_target]
-        aws.security_groups = params[:ami_security_groups][deploy_target]
-
-        # Make sure you have the key avaialble in your computer too
-        override.ssh.private_key_path = deploy_params[:private_key_path][deploy_target]
-        aws.keypair_name = deploy_params[:keypair_name][deploy_target]
-
-        # username usually depends on AMI, be careful
-        aws.ami = params[:ami_id][deploy_target]
-        override.ssh.username = params[:ami_username][deploy_target]
-      end
-
       host.vm.provider :virtualbox do |vb, override|
-        vb.cpus = 1
-        vb.memory = 1*1024
+        vb.cpus = params[:vbox_cpus] || vbox_defaults[:cpus]
+        vb.memory = 1024 * (params[:vbox_ram_gbs]  || vbox_defaults[:ram_gbs])
         vb.name = params[:name]
 
         override.vm.box = "centos/7"
@@ -203,40 +109,32 @@ Vagrant.configure(2) do |config|
         end
       end
 
-      # AUTOMATIC PROVISIONING
-      $ntp_script = <<SCRIPT
-      # Install rsyslog and configure remote log sink
-      yum install -y rsyslog
-      echo 'local0.* @log-collector' > /etc/rsyslog.d/clousr.conf
-SCRIPT
-      host.vm.provision "shell", privileged: true, inline: $ntp_script
-
+      # Copy files to default location first
       if params[:bootstrap]
-        # Copy files to default location first
         params[:bootstrap][:files].each do |f|
           host.vm.provision "file", source: "#{f}", destination: "/tmp/#{machine_name.to_s}/"
         end if params[:bootstrap][:files]
+
+        # Specific machine's config
+        if params[:secrets]
+          # Export secrets from an off-repo file
+          $host_script = <<SCRIPT
+      file=`mktemp secrets.XXXX`
+
+      echo '#!/bin/false' >> $file
+      echo export RANCHER_SERVER_HOST=#{deploy_prefix}rancherserver >> $file
+      echo export RANCHER_AGENT_HOST=#{deploy_prefix}rancheragent} >> $file
+
+      sudo chmod a+r $file
+      mv $file /tmp/secrets
+SCRIPT
+            host.vm.provision "shell", inline: $host_script
+        end
 
         # Execute specific bootstrap
         host.vm.provision "file", source: params[:bootstrap][:bootstrap_file], destination: "/tmp/bootstrap.sh"
         host.vm.provision "shell", privileged: true, inline: "bash /tmp/bootstrap.sh #{deploy_target}"
       end
     end
-  end
-
-  # Specific machine's config
-  config.vm.define "#{deploy_prefix}rancherserver".to_sym do |rancherserver|
-
-    # Export secrets from an off-repo file
-    $host_script = <<SCRIPT
-    file=`mktemp secrets.XXXX`
-
-    echo '#!/bin/false' >> $file
-    echo export rancherserver_ADMIN_PASSWORD=#{clousr_config['rancherserver_admin_password']} >> $file
-
-    sudo chmod a+r $file
-    mv $file /tmp/secrets
-SCRIPT
-    rancherserver.vm.provision "shell", inline: $host_script
   end
 end

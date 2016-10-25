@@ -1,0 +1,107 @@
+---
+- hosts: all
+  vars:
+    server_version: 0.56.1
+    rancher_server: "{{ RANCHER_SERVER }}"
+    rancher_port: "{{ RANCHER_PORT }}"
+    admin_user: "{{ ADMIN_USER }}"
+    admin_pass: "{{ ADMIN_PASS }}"
+    api_user: "{{ API_USER }}"
+    api_pass: "{{ API_PASS }}"
+    create_api_key_body:
+      accountId: "1a1"
+      description: "provisioner"
+      name: "provisioner"
+      publicValue: "{{ api_user }}"
+      secretValue: "{{ api_pass }}"
+      _hack: null
+    enable_local_auth_body:
+      accessMode: "restricted"
+      enabled: true
+      name: "{{ admin_user }}"
+      password: "{{ admin_pass }}"
+      username: "{{ admin_user }}"
+      _hack: null
+  sudo: yes
+
+  roles:
+    - abaez.docker
+
+  tasks:
+  - name: Install httplib2
+    yum:
+      name: python-httplib2
+      update_cache: yes
+
+  - name: Create mount volume directories for persistent rancher server data
+    file: path={{ item.path }} state=directory mode="a+rw"
+    with_items:
+      - { path: '/var/rancher/lib/mysql' }
+      - { path: '/var/rancher/log/mysql' }
+      - { path: '/var/rancher/lib/cattle' }
+
+  - name: Pull and run Rancher server container
+    docker:
+      name: rancherserver
+      image: rancher/server:v{{ server_version }}
+      state: reloaded
+      restart_policy: always
+      detach: True
+      net: bridge
+      ports:
+      - "{{ rancher_port }}:{{ rancher_port }}"
+      volumes:
+      - /var/rancher/lib/cattle:/var/lib/cattle
+      - /var/rancher/lib/mysql:/var/lib/mysql
+      - /var/rancher/log/mysql:/var/log/mysql
+
+  - name: Wait for the Rancher server to start
+    action: command docker logs rancherserver
+    register: rancher_logs
+    until: rancher_logs.stdout.find("Listening on") != -1
+    retries: 30
+    delay: 10
+
+  - name: Check if auth is enabled
+    uri:
+      method: GET
+      status_code: 401
+      url: "http://{{ rancher_server }}:{{ rancher_port }}/v1"
+    register: auth_enabled
+    ignore_errors: yes
+
+  # Example of debugging variables
+  #- debug: var=auth_enabled
+
+  - name: Add API access key to admin account
+    uri:
+      method: POST
+      status_code: 201
+      force_basic_auth: yes
+      user: "{{ api_user }}"
+      password: "{{ api_pass }}"
+      url: "http://{{ rancher_server }}:{{ rancher_port }}/v1/apikeys"
+      body_format: json
+      body: "{{ create_api_key_body | to_json }}"
+    when: auth_enabled|failed
+
+  - name: Enable local authentication and setup rancher server admin user
+    uri:
+      method: POST
+      status_code: 201
+      force_basic_auth: yes
+      user: "{{ api_user }}"
+      password: "{{ api_pass }}"
+      url: "http://{{ rancher_server }}:{{ rancher_port }}/v1/localauthconfigs"
+      body_format: json
+      body: "{{ enable_local_auth_body | to_json }}"
+    when: auth_enabled|failed
+
+  - name: Confirm admin access to API
+    uri:
+      method: GET
+      status_code: 200
+      force_basic_auth: yes
+      user: "{{ api_user }}"
+      password: "{{ api_pass }}"
+      url: "http://{{ rancher_server }}:{{ rancher_port }}/v1"

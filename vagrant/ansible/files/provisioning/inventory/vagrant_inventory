@@ -1,0 +1,5 @@
+[rancherserver]
+rancherserver ansible_ssh_port=22 ansible_ssh_host=172.19.8.100 ansible_ssh_user=vagrant ansible_ssh_pass=vagrant
+
+[rancheragent]
+rancheragent ansible_ssh_port=22 ansible_ssh_host=172.19.8.101 ansible_ssh_user=vagrant ansible_ssh_pass=vagrant
