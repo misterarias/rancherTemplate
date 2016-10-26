@@ -66,7 +66,7 @@
         volumes: /var/run/docker.sock:/var/run/docker.sock
         command: "{{ rancher_token.json['registrationUrl'] }}"
         state: reloaded
-        net: host
+        net: bridge
         restart_policy: always
 
     - name: Wait for the Rancher agent to register with server
