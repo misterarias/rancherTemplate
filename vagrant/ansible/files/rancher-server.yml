@@ -1,7 +1,7 @@
 ---
-- hosts: all
+- hosts: rancherserver
   vars:
-    server_version: 0.56.1
+    server_version: 1.1.4
     rancher_server: "{{ RANCHER_SERVER }}"
     rancher_port: "{{ RANCHER_PORT }}"
     admin_user: "{{ ADMIN_USER }}"
@@ -24,14 +24,10 @@
       _hack: null
   sudo: yes
 
-  roles:
-    - abaez.docker
-
   tasks:
-  - name: Install httplib2
-    yum:
-      name: python-httplib2
-      update_cache: yes
+
+  - name: Delete old Rancher directory from a previous run
+    file: path=/var/rancher state=absent
 
   - name: Create mount volume directories for persistent rancher server data
     file: path={{ item.path }} state=directory mode="a+rw"
@@ -39,6 +35,10 @@
       - { path: '/var/rancher/lib/mysql' }
       - { path: '/var/rancher/log/mysql' }
       - { path: '/var/rancher/lib/cattle' }
+
+  - name: Purge any data from a previous execution
+    action: command docker rm -f rancherserver
+    ignore_errors: yes
 
   - name: Pull and run Rancher server container
     docker:
@@ -58,20 +58,18 @@
   - name: Wait for the Rancher server to start
     action: command docker logs rancherserver
     register: rancher_logs
-    until: rancher_logs.stdout.find("Listening on") != -1
+    until: rancher_logs.stdout.find("Startup Succeeded") != -1
     retries: 30
     delay: 10
 
   - name: Check if auth is enabled
     uri:
       method: GET
-      status_code: 401
+      return_content: yes
       url: "http://{{ rancher_server }}:{{ rancher_port }}/v1"
     register: auth_enabled
+    until: auth_enabled.status == 401
     ignore_errors: yes
-
-  # Example of debugging variables
-  #- debug: var=auth_enabled
 
   - name: Add API access key to admin account
     uri:
@@ -84,6 +82,7 @@
       body_format: json
       body: "{{ create_api_key_body | to_json }}"
     when: auth_enabled|failed
+    register: api_access
 
   - name: Enable local authentication and setup rancher server admin user
     uri:
@@ -96,6 +95,9 @@
       body_format: json
       body: "{{ enable_local_auth_body | to_json }}"
     when: auth_enabled|failed
+    register: local_auth
+
+  - debug: var=local_auth
 
   - name: Confirm admin access to API
     uri:

@@ -1,0 +1,26 @@
+- name: Common include for all agents
+  hosts: all
+  sudo: yes
+  roles:
+      - abaez.docker
+  tasks:
+    - name: Install EPEL release for extended package support
+      yum:
+        name: epel-release
+        update_cache: yes
+
+    - name: Install httplib2
+      yum:
+        name: python-httplib2
+
+    - name: Get running containers
+      action: command docker ps -q
+      register: running_containers
+
+    - name: Kill any running container
+      action: command docker kill {{ running_containers.stdout }}
+      ignore_errors: yes
+
+
+- include: rancher-server.yml
+- include: rancher-agent.yml

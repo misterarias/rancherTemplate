@@ -1,0 +1,5 @@
+[rancherserver]
+qa-rancherserver
+
+[agents]
+rancheragent[00:02]

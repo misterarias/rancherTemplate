@@ -1,19 +1,24 @@
 ---
-- hosts: all
+- hosts: agents
   sudo: yes
   vars:
-    agent_version: 0.8.2
+    agent_version: 1.0.2
     rancher_server: "{{ RANCHER_SERVER }}"
     rancher_port: "{{ RANCHER_PORT }}"
     api_user: "{{ API_USER }}"
     api_pass: "{{ API_PASS }}"
-  roles:
-    - abaez.docker
+
   tasks:
-    - name: Install httplib2
-      yum:
-        name: python-httplib2
-        update_cache: yes
+    - name: Wait for the rancher server to be up
+      uri:
+        method: GET
+        return_content: yes
+        url: "http://{{ rancher_server }}:{{ rancher_port }}/v1"
+      register: server_alive
+      until: server_alive.status == 401
+      ignore_errors: yes
+      retries: 30
+      delay: 10
 
     - name: Get the default rancher project id
       uri:
@@ -47,6 +52,10 @@
         url: "{{ rancher_token_url.json['links']['self'] }}"
         return_content: yes
       register: rancher_token
+
+    - name: Purge any data from a previous execution
+      action: command docker rm -f rancheragent
+      ignore_errors: yes
 
     - name: Register the Agent Host machine with the Rancher server
       docker:

@@ -22,12 +22,7 @@ sed -i.bk -e 's#.*GSSAPIAuthentication.*#GSSAPIAuthentication no#g' /etc/ssh/ssh
 
 echo "== start provisoning"
 
-# Created by Vagrant
-source /tmp/secrets
-
-# Automatically setup during vagrant up
-export RANCHER_SERVER_HOST=${RANCHER_SERVER_HOST}
-export RANCHER_AGENT_HOST=${RANCHER_AGENT_HOST}
+export RANCHER_SERVER_HOST=192.168.69.2
 export RANCHER_PORT=8080
 export SSH_PASS=vagrant
 export SSH_USER=vagrant
@@ -39,7 +34,13 @@ export API_PASS=api_admin
 #install any ansible roles we may need
 ansible-galaxy install --force abaez.docker
 
-/tmp/ansible/files/provisionServer.sh || exit $?
-/tmp/ansible/files/provisionAgent.sh
+#/tmp/ansible/provisionServer.sh || exit $?
 
-echo "== Done!"
+export ANSIBLE_HOST_KEY_CHECKING=False
+
+TOPDIR=$(cd $(dirname $0) ; pwd)
+ansible-playbook \
+  -u $SSH_USER \
+  -i ${TOPDIR}/ansible/hosts \
+  --extra-vars "ansible_ssh_pass=$SSH_PASS RANCHER_SERVER=$RANCHER_SERVER_HOST RANCHER_PORT=$RANCHER_PORT ADMIN_USER=$ADMIN_USER ADMIN_PASS=$ADMIN_PASS API_USER=$API_USER API_PASS=$API_PASS" \
+  "${TOPDIR}/ansible/site.yml"

@@ -50,7 +50,8 @@ Vagrant.configure(2) do |config|
     :rancheragent => {
       :instances => 2, # XXX:  use this...
       :vbox_ip => '192.168.69.100',
-      :bootstrap => {:bootstrap_file => "./rancher/agent/bootstrap.sh" }
+      :bootstrap => {:bootstrap_file => "./rancher/agent/bootstrap.sh" },
+      :aliases => ['rancheragent00']
     },
     :ansible => {
       :vbox_ip => '192.168.69.11',
@@ -70,11 +71,18 @@ Vagrant.configure(2) do |config|
   cached_addresses = {}
   config.hostmanager.ip_resolver = proc do |vm, resolving_vm|
     if cached_addresses[vm.name].nil?
+      # code for virtualbox
       if vm.ssh_info && vm.ssh_info[:host]
-        vm.communicate.execute("hostname -I") do |type, contents|
-          cached_addresses[vm.name] = contents.split("\n").first[/(\d+\.\d+\.\d+\.\d+)/, 1]
+        vm.communicate.execute("hostname -I | awk '{print $2}'") do |type, contents|
+          cached_addresses[vm.name] = contents.split("\n").first
         end
       end
+      # Code for AWS
+      #if vm.ssh_info && vm.ssh_info[:host]
+      #  vm.communicate.execute("hostname -I") do |type, contents|
+      #    cached_addresses[vm.name] = contents.split("\n").first[/(\d+\.\d+\.\d+\.\d+)/, 1]
+      #  end
+      #end
     end
     cached_addresses[vm.name]
   end
@@ -114,22 +122,6 @@ Vagrant.configure(2) do |config|
         params[:bootstrap][:files].each do |f|
           host.vm.provision "file", source: "#{f}", destination: "/tmp/#{machine_name.to_s}/"
         end if params[:bootstrap][:files]
-
-        # Specific machine's config
-        if params[:secrets]
-          # Export secrets from an off-repo file
-          $host_script = <<SCRIPT
-      file=`mktemp secrets.XXXX`
-
-      echo '#!/bin/false' >> $file
-      echo export RANCHER_SERVER_HOST=#{deploy_prefix}rancherserver >> $file
-      echo export RANCHER_AGENT_HOST=#{deploy_prefix}rancheragent} >> $file
-
-      sudo chmod a+r $file
-      mv $file /tmp/secrets
-SCRIPT
-            host.vm.provision "shell", inline: $host_script
-        end
 
         # Execute specific bootstrap
         host.vm.provision "file", source: params[:bootstrap][:bootstrap_file], destination: "/tmp/bootstrap.sh"
