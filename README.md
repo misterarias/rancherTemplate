@@ -1,6 +1,7 @@
 # Rancher server + Registry + multiagent cluster
 
 ## Vagrant:
+* Install the vagrant hostmanager plugin: `vagrant plugin install hostmanager`
 * Create self-signed certificate using provided script
 * Create an entry in `/etc/hosts` for **mi.org**
 * vagrant up
