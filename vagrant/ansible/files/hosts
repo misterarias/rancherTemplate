@@ -2,4 +2,4 @@
 qa-rancherserver
 
 [agents]
-rancheragent[00:02]
+192.168.69.1[00:02]

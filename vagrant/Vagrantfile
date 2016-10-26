@@ -45,13 +45,14 @@ Vagrant.configure(2) do |config|
   machines = {
     :rancherserver => {
       :vbox_ip => '192.168.69.2',
-      :bootstrap => {:bootstrap_file => "./rancher/server/bootstrap.sh" }
+      :bootstrap => {:bootstrap_file => "./rancher/server/bootstrap.sh" },
+      :aliases => ['mi.org'] # The domain used with 'create_cert.sh'
     },
     :rancheragent => {
       :instances => 2, # XXX:  use this...
       :vbox_ip => '192.168.69.100',
       :bootstrap => {:bootstrap_file => "./rancher/agent/bootstrap.sh" },
-      :aliases => ['rancheragent00']
+
     },
     :ansible => {
       :vbox_ip => '192.168.69.11',

@@ -22,7 +22,8 @@ sed -i.bk -e 's#.*GSSAPIAuthentication.*#GSSAPIAuthentication no#g' /etc/ssh/ssh
 
 echo "== start provisoning"
 
-export RANCHER_SERVER_HOST=192.168.69.2
+# grep out the IP
+export RANCHER_SERVER_HOST=$(cat /etc/hosts | grep mi.org | awk '{print $1}')
 export RANCHER_PORT=8080
 export SSH_PASS=vagrant
 export SSH_USER=vagrant

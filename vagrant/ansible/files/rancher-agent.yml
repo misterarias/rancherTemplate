@@ -66,7 +66,7 @@
         volumes: /var/run/docker.sock:/var/run/docker.sock
         command: "{{ rancher_token.json['registrationUrl'] }}"
         state: reloaded
-        net: bridge
+        net: host
         restart_policy: always
 
     - name: Wait for the Rancher agent to register with server
@@ -80,7 +80,6 @@
         return_content: yes
       register: rancher_hosts
       until: rancher_hosts.content.find("{{ ansible_hostname }}") != -1
-      retries: 30
-      delay: 10
-
+      retries: 10
+      delay: 5
 
