@@ -3,23 +3,23 @@
 
 # Read config file, if any
 require 'yaml'
-clousr_config_file = "#{ENV['HOME']}/.clousr/config.yml"
-clousr_config = {}
+my_config_file = "#{ENV['HOME']}/.rancher/config.yml"
+my_config = {}
 begin
-  clousr_config = YAML.load_file clousr_config_file
+  my_config = YAML.load_file my_config_file
 rescue
-  puts "[WARNING]: No clousr config file found @ '#{clousr_config_file}'"
+  puts "[WARNING]: No config file found @ '#{my_config_file}'"
 end
 
 # If there are any exports, set them here
-clousr_config['exports'].each { |key,val| ENV[key] = val unless ENV.include? key } if clousr_config['exports']
+my_config['exports'].each { |key,val| ENV[key] = val unless ENV.include? key } if my_config['exports']
 
 # Load deplyment_mode, from environment first, then file, default if none
 if ENV['ENVIRONMENT'] != nil
   deploy_target = ENV['ENVIRONMENT']
   puts "[INFO] Using deploy_target from environment: #{deploy_target}"
-elsif clousr_config['environment'] != nil
-  deploy_target = clousr_config['environment']
+elsif my_config['environment'] != nil
+  deploy_target = my_config['environment']
   puts "[INFO] Using deploy_target from config file: #{deploy_target}"
 else
   deploy_target = 'qa'
@@ -32,7 +32,7 @@ unless ['qa', 'prod'].include? deploy_target
 end
 
 # Because of this, machine names in the CLI need to have the proper prefix:
-# vagrant up qa-clousr-rancher_server
+# vagrant up qa-my-rancher_server
 deploy_prefix = "#{deploy_target}-"
 
 Vagrant.configure(2) do |config|
