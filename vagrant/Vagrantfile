@@ -88,45 +88,67 @@ Vagrant.configure(2) do |config|
     cached_addresses[vm.name]
   end
 
+  # Cram as much common code as possible
+  config.vm.synced_folder ".", "/vagrant", disabled:true
+  config.vm.provision :hostmanager
+
+  def getMachineName(machine_name, iteration, multimachine_flag, deploy_prefix)
+    if not multimachine_flag
+      "#{deploy_prefix}#{machine_name}"
+    else
+      "#{deploy_prefix}#{machine_name}-#{iteration}"
+    end
+  end
+
+  def getMachineIP(base_ip, iteration, multimachine_flag)
+    if not multimachine_flag
+      base_ip
+    else
+      suffix = (base_ip.match('[0-9]+$').to_s.to_i + iteration).to_s
+      base_ip.gsub(/[0-9]+$/, suffix)
+    end
+  end
+
   machines.each do |machine_name, params|
 
-    config.vm.define "#{deploy_prefix}#{machine_name.to_s}".to_sym do |host|
+    1.upto(params[:instances] || 1) do |i|
 
-      # vagrant-hostmanager machine-specific:
-      # the hostname is already added to the hosts file by the plugin
-      host.vm.host_name = "#{deploy_prefix}#{machine_name.to_s}"
-      host.vm.provision :hostmanager
-      if params[:aliases]
-        host.hostmanager.aliases = params[:aliases]
-      end
+      config.vm.define getMachineName(machine_name, i, params[:instances], deploy_prefix).to_sym do |host|
 
-      # Dummy AWS box, add with: vagrant box add dummy https://github.com/mitchellh/vagrant-aws/raw/master/dummy.box
-      host.vm.box = "dummy"
-      host.vm.synced_folder ".", "/vagrant", disabled:true
-
-      host.vm.provider :virtualbox do |vb, override|
-        vb.cpus = params[:vbox_cpus] || vbox_defaults[:cpus]
-        vb.memory = 1024 * (params[:vbox_ram_gbs]  || vbox_defaults[:ram_gbs])
-        vb.name = params[:name]
-
-        override.vm.box = "centos/7"
-        override.vm.network "private_network",  ip: params[:vbox_ip]
-        if params[:vbox_guest_port] then
-          override.vm.network "forwarded_port",
-            guest: params[:vbox_guest_port],
-            host: params[:vbox_host_port]
+        # vagrant-hostmanager machine-specific:
+        # the hostname is already added to the hosts file by the plugin
+        host.vm.host_name = getMachineName(machine_name, i, params[:instances], deploy_prefix)
+        if params[:aliases]
+          host.hostmanager.aliases = params[:aliases]
         end
-      end
 
-      # Copy files to default location first
-      if params[:bootstrap]
-        params[:bootstrap][:files].each do |f|
-          host.vm.provision "file", source: "#{f}", destination: "/tmp/#{machine_name.to_s}/"
-        end if params[:bootstrap][:files]
+        # Dummy AWS box, add with: vagrant box add dummy https://github.com/mitchellh/vagrant-aws/raw/master/dummy.box
+        host.vm.box = "dummy"
 
-        # Execute specific bootstrap
-        host.vm.provision "file", source: params[:bootstrap][:bootstrap_file], destination: "/tmp/bootstrap.sh"
-        host.vm.provision "shell", privileged: true, inline: "bash /tmp/bootstrap.sh #{deploy_target}"
+        host.vm.provider :virtualbox do |vb, override|
+          vb.cpus = params[:vbox_cpus] || vbox_defaults[:cpus]
+          vb.memory = 1024 * (params[:vbox_ram_gbs]  || vbox_defaults[:ram_gbs])
+          vb.name = params[:name]
+
+          override.vm.box = "centos/7"
+          override.vm.network "private_network",  ip: getMachineIP(params[:vbox_ip], i, params[:instances])
+          if params[:vbox_guest_port] then
+            override.vm.network "forwarded_port",
+              guest: params[:vbox_guest_port],
+              host: params[:vbox_host_port]
+          end
+        end
+
+        # Copy files to default location first
+        if params[:bootstrap]
+          params[:bootstrap][:files].each do |f|
+            host.vm.provision "file", source: "#{f}", destination: "/tmp/#{machine_name.to_s}/"
+          end if params[:bootstrap][:files]
+
+          # Execute specific bootstrap
+          host.vm.provision "file", source: params[:bootstrap][:bootstrap_file], destination: "/tmp/bootstrap.sh"
+          host.vm.provision "shell", privileged: true, inline: "bash /tmp/bootstrap.sh #{deploy_target}"
+        end
       end
     end
   end
