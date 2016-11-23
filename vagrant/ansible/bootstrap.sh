@@ -25,6 +25,7 @@ echo "== start provisoning"
 # grep out the IP
 export RANCHER_SERVER_HOST=$(cat /etc/hosts | grep mi.org | awk '{print $1}')
 export RANCHER_PORT=8080
+export REGISTRY_PORT=5000
 export SSH_PASS=vagrant
 export SSH_USER=vagrant
 export ADMIN_USER=admin
@@ -43,5 +44,7 @@ TOPDIR=$(cd $(dirname $0) ; pwd)
 ansible-playbook \
   -u $SSH_USER \
   -i ${TOPDIR}/ansible/hosts \
-  --extra-vars "ansible_ssh_pass=$SSH_PASS RANCHER_SERVER=$RANCHER_SERVER_HOST RANCHER_PORT=$RANCHER_PORT ADMIN_USER=$ADMIN_USER ADMIN_PASS=$ADMIN_PASS API_USER=$API_USER API_PASS=$API_PASS" \
+  --extra-vars "ansible_ssh_pass=$SSH_PASS RANCHER_SERVER=$RANCHER_SERVER_HOST RANCHER_PORT=$RANCHER_PORT ADMIN_USER=$ADMIN_USER ADMIN_PASS=$ADMIN_PASS \
+  REGISTRY_PORT=$REGISTRY_PORT \
+  API_USER=$API_USER API_PASS=$API_PASS"  \
   "${TOPDIR}/ansible/site.yml"

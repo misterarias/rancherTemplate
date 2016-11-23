@@ -4,6 +4,7 @@
     server_version: 1.1.4
     rancher_server: "{{ RANCHER_SERVER }}"
     rancher_port: "{{ RANCHER_PORT }}"
+    registry_port: "{{ REGISTRY_PORT }}"
     admin_user: "{{ ADMIN_USER }}"
     admin_pass: "{{ ADMIN_PASS }}"
     api_user: "{{ API_USER }}"
@@ -25,6 +26,27 @@
   sudo: yes
 
   tasks:
+
+  - name: Pull and run Docker Registry
+    docker:
+        name: registry
+        image: registry:2
+        state: reloaded
+        restart_policy: always
+        detach: True
+        net: bridge
+        ports:
+            - "{{ registry_port }}:{{ registry_port }}"
+        volumes:
+            - /tmp/rancherserver/auth:/auth
+            - /tmp/rancherserver/ssl:/ssl
+        env:
+            REGISTRY_AUTH: htpasswd
+            REGISTRY_AUTH_HTPASSWD_REALM: Registry Realm
+            REGISTRY_AUTH_HTPASSWD_PATH: /auth/htpasswd
+            REGISTRY_HTTP_TLS_CERTIFICATE: /ssl/certificates/mi.org.crt
+            REGISTRY_HTTP_TLS_KEY: /ssl/private/mi.org.key
+
 
   - name: Delete old Rancher directory from a previous run
     file: path=/var/rancher state=absent
