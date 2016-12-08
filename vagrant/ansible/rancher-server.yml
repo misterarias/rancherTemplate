@@ -23,10 +23,9 @@
       password: "{{ admin_pass }}"
       username: "{{ admin_user }}"
       _hack: null
-  sudo: yes
 
+  become: true
   tasks:
-
   - name: Pull and run Docker Registry
     docker:
         name: registry

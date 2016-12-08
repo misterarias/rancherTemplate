@@ -1,6 +1,5 @@
 ---
 - hosts: agents
-  sudo: yes
   vars:
     agent_version: 1.0.2
     rancher_server: "{{ RANCHER_SERVER }}"
@@ -8,6 +7,7 @@
     api_user: "{{ API_USER }}"
     api_pass: "{{ API_PASS }}"
 
+  become: true
   tasks:
     - name: Wait for the rancher server to be up
       uri:

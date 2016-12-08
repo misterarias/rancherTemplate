@@ -1,6 +1,6 @@
-- name: Common include for all agents
-  hosts: all
-  sudo: yes
+---
+- hosts: all
+  become: true
   roles:
       - abaez.docker
   tasks:
@@ -20,7 +20,6 @@
     - name: Kill any running container
       action: command docker kill {{ running_containers.stdout }}
       ignore_errors: yes
-
 
 - include: rancher-server.yml
 - include: rancher-agent.yml

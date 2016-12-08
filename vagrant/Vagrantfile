@@ -6,9 +6,9 @@ require 'yaml'
 my_config_file = "#{ENV['HOME']}/.rancher/config.yml"
 my_config = {}
 begin
-  my_config = YAML.load_file my_config_file
+	my_config = YAML.load_file my_config_file
 rescue
-  puts "[WARNING]: No config file found @ '#{my_config_file}'"
+	puts "[WARNING]: No config file found @ '#{my_config_file}'"
 end
 
 # If there are any exports, set them here
@@ -16,19 +16,19 @@ my_config['exports'].each { |key,val| ENV[key] = val unless ENV.include? key } i
 
 # Load deplyment_mode, from environment first, then file, default if none
 if ENV['ENVIRONMENT'] != nil
-  deploy_target = ENV['ENVIRONMENT']
-  puts "[INFO] Using deploy_target from environment: #{deploy_target}"
+	deploy_target = ENV['ENVIRONMENT']
+	puts "[INFO] Using deploy_target from environment: #{deploy_target}"
 elsif my_config['environment'] != nil
-  deploy_target = my_config['environment']
-  puts "[INFO] Using deploy_target from config file: #{deploy_target}"
+	deploy_target = my_config['environment']
+	puts "[INFO] Using deploy_target from config file: #{deploy_target}"
 else
-  deploy_target = 'qa'
-  puts "[INFO] Using default deploy_target: #{deploy_target}"
+	deploy_target = 'qa'
+	puts "[INFO] Using default deploy_target: #{deploy_target}"
 end
 
 unless ['qa', 'prod'].include? deploy_target
-  puts "[ERROR] Invalid deploy_target: #{deploy_target}"
-  exit
+	puts "[ERROR] Invalid deploy_target: #{deploy_target}"
+	exit
 end
 
 # Because of this, machine names in the CLI need to have the proper prefix:
@@ -37,122 +37,136 @@ deploy_prefix = "#{deploy_target}-"
 
 Vagrant.configure(2) do |config|
 
-  vbox_defaults = {
-    :cpus => 1, :ram_gbs => 1
-  }
+	vbox_defaults = {
+		:cpus => 1, :ram_gbs => 1
+	}
 
-  # Despite the name, final machine ID is deploy_prefix + machine_name
-  machines = {
-    :rancherserver => {
-      :vbox_ip => '192.168.69.2',
-      :bootstrap => {
-        :bootstrap_file => "./rancher/server/bootstrap.sh",
-        :files => [ './rancher/server/registry']
-      },
-      :aliases => ['mi.org'] # The domain used with 'create_cert.sh'
-    },
-    :rancheragent => {
-      :instances => 2, # XXX:  use this...
-      :vbox_ip => '192.168.69.100',
-      :bootstrap => {:bootstrap_file => "./rancher/agent/bootstrap.sh" },
+	# Despite the name, final machine ID is deploy_prefix + machine_name
+	machines = {
+		:rancherserver => {
+			:vbox_ip => '192.168.69.2',
+			:files => [ './rancher/server/registry'],
+			:playbook => 'ansible/rancher-server.yml',
+			:aliases => ['mi.org'] # The domain used with 'create_cert.sh'
+		},
+		:rancheragent => {
+			:instances => 2, # XXX:  use this...
+			:vbox_ip => '192.168.69.100',
+			:playbook => 'ansible/rancher-agent.yml'
+		}
+	}
 
-    },
-    :ansible => {
-      :vbox_ip => '192.168.69.11',
-      :secrets => true, # XXX Further customize
-      :bootstrap => {:bootstrap_file => "./ansible/bootstrap.sh",
-                     :files =>  ["./ansible/files"]}
+	#config.vm.network "forwarded_port", guest: 80, host: 8080
+
+
+	# vagrant-hostmanager global config
+	config.hostmanager.enabled = false # so it runs as a provisioner
+	config.hostmanager.manage_host = true
+	config.hostmanager.manage_guest = true
+	config.hostmanager.ignore_private_ip = false
+	config.hostmanager.include_offline = true
+
+	cached_addresses = {}
+	config.hostmanager.ip_resolver = proc do |vm, resolving_vm|
+		if cached_addresses[vm.name].nil?
+			# code for virtualbox
+			if vm.ssh_info && vm.ssh_info[:host]
+				vm.communicate.execute("hostname -I | awk '{print $2}'") do |type, contents|
+					cached_addresses[vm.name] = contents.split("\n").first
+				end
+			end
+			# Code for AWS
+			#if vm.ssh_info && vm.ssh_info[:host]
+			#  vm.communicate.execute("hostname -I") do |type, contents|
+			#    cached_addresses[vm.name] = contents.split("\n").first[/(\d+\.\d+\.\d+\.\d+)/, 1]
+			#  end
+			#end
+		end
+		cached_addresses[vm.name]
+	end
+
+	# Cram as much common code as possible
+	config.vm.synced_folder ".", "/vagrant", disabled:true
+	config.vm.provision :hostmanager
+
+	def getMachineName(machine_name, iteration, multimachine_flag, deploy_prefix)
+		if not multimachine_flag
+			"#{deploy_prefix}#{machine_name}"
+		else
+			"#{deploy_prefix}#{machine_name}-#{iteration}"
+		end
+	end
+
+	def getMachineIP(base_ip, iteration, multimachine_flag)
+		if not multimachine_flag
+			base_ip
+		else
+			suffix = (base_ip.match('[0-9]+$').to_s.to_i + iteration).to_s
+			base_ip.gsub(/[0-9]+$/, suffix)
+		end
+	end
+
+	machines.each do |machine_name, params|
+		# adjust instance number and flags, in case of single machines
+		params[:instances] = params[:instances] || 1
+		params[:multimachine] = params[:instances] > 1
+
+		1.upto(params[:instances]) do |machine_id|
+
+			config.vm.define getMachineName(machine_name, machine_id, params[:multimachine], deploy_prefix).to_sym do |host|
+
+				# vagrant-hostmanager machine-specific:
+				# the hostname is already added to the hosts file by the plugin
+				host.vm.host_name = getMachineName(machine_name, machine_id, params[:multimachine], deploy_prefix)
+				if params[:aliases]
+					host.hostmanager.aliases = params[:aliases]
+				end
+
+				# Dummy AWS box, add with: vagrant box add dummy https://github.com/mitchellh/vagrant-aws/raw/master/dummy.box
+				host.vm.box = "dummy"
+
+				host.vm.provider :virtualbox do |vb, override|
+					vb.cpus = params[:vbox_cpus] || vbox_defaults[:cpus]
+					vb.memory = 1024 * (params[:vbox_ram_gbs]  || vbox_defaults[:ram_gbs])
+					vb.name = params[:name]
+
+					override.vm.box = "centos/7"
+					override.vm.network "private_network",  ip: getMachineIP(params[:vbox_ip], machine_id, params[:multimachine])
+					if params[:vbox_guest_port] then
+						override.vm.network "forwarded_port",
+							guest: params[:vbox_guest_port],
+							host: params[:vbox_host_port]
+					end
+				end
+
+				# Copy files to default location first
+				if params[:files]
+					params[:files].each do |f|
+						host.vm.provision "file", source: "#{f}", destination: "/tmp/#{machine_name.to_s}/"
+					end if params[:files]
+				end
+			end
+		end
+	end
+
+  config.vm.provision :ansible do |ansible|
+    ansible.playbook = "ansible/site.yml"
+    #ansible.limit = "all"
+    ansible.groups = {
+      "group1" => "rancherserver",
+      "group2" => "agents",
+      "all_groups:chldren" => ["group1", "group2"]
     }
-  }
-
-  # vagrant-hostmanager global config
-  config.hostmanager.enabled = false # so it runs as a provisioner
-  config.hostmanager.manage_host = true
-  config.hostmanager.manage_guest = true
-  config.hostmanager.ignore_private_ip = false
-  config.hostmanager.include_offline = true
-
-  cached_addresses = {}
-  config.hostmanager.ip_resolver = proc do |vm, resolving_vm|
-    if cached_addresses[vm.name].nil?
-      # code for virtualbox
-      if vm.ssh_info && vm.ssh_info[:host]
-        vm.communicate.execute("hostname -I | awk '{print $2}'") do |type, contents|
-          cached_addresses[vm.name] = contents.split("\n").first
-        end
-      end
-      # Code for AWS
-      #if vm.ssh_info && vm.ssh_info[:host]
-      #  vm.communicate.execute("hostname -I") do |type, contents|
-      #    cached_addresses[vm.name] = contents.split("\n").first[/(\d+\.\d+\.\d+\.\d+)/, 1]
-      #  end
-      #end
-    end
-    cached_addresses[vm.name]
-  end
-
-  # Cram as much common code as possible
-  config.vm.synced_folder ".", "/vagrant", disabled:true
-  config.vm.provision :hostmanager
-
-  def getMachineName(machine_name, iteration, multimachine_flag, deploy_prefix)
-    if not multimachine_flag
-      "#{deploy_prefix}#{machine_name}"
-    else
-      "#{deploy_prefix}#{machine_name}-#{iteration}"
-    end
-  end
-
-  def getMachineIP(base_ip, iteration, multimachine_flag)
-    if not multimachine_flag
-      base_ip
-    else
-      suffix = (base_ip.match('[0-9]+$').to_s.to_i + iteration).to_s
-      base_ip.gsub(/[0-9]+$/, suffix)
-    end
-  end
-
-  machines.each do |machine_name, params|
-
-    1.upto(params[:instances] || 1) do |i|
-
-      config.vm.define getMachineName(machine_name, i, params[:instances], deploy_prefix).to_sym do |host|
-
-        # vagrant-hostmanager machine-specific:
-        # the hostname is already added to the hosts file by the plugin
-        host.vm.host_name = getMachineName(machine_name, i, params[:instances], deploy_prefix)
-        if params[:aliases]
-          host.hostmanager.aliases = params[:aliases]
-        end
-
-        # Dummy AWS box, add with: vagrant box add dummy https://github.com/mitchellh/vagrant-aws/raw/master/dummy.box
-        host.vm.box = "dummy"
-
-        host.vm.provider :virtualbox do |vb, override|
-          vb.cpus = params[:vbox_cpus] || vbox_defaults[:cpus]
-          vb.memory = 1024 * (params[:vbox_ram_gbs]  || vbox_defaults[:ram_gbs])
-          vb.name = params[:name]
-
-          override.vm.box = "centos/7"
-          override.vm.network "private_network",  ip: getMachineIP(params[:vbox_ip], i, params[:instances])
-          if params[:vbox_guest_port] then
-            override.vm.network "forwarded_port",
-              guest: params[:vbox_guest_port],
-              host: params[:vbox_host_port]
-          end
-        end
-
-        # Copy files to default location first
-        if params[:bootstrap]
-          params[:bootstrap][:files].each do |f|
-            host.vm.provision "file", source: "#{f}", destination: "/tmp/#{machine_name.to_s}/"
-          end if params[:bootstrap][:files]
-
-          # Execute specific bootstrap
-          host.vm.provision "file", source: params[:bootstrap][:bootstrap_file], destination: "/tmp/bootstrap.sh"
-          host.vm.provision "shell", privileged: true, inline: "bash /tmp/bootstrap.sh #{deploy_target}"
-        end
-      end
-    end
+    ansible.inventory_path = "ansible/hosts"
+    ansible.verbose = "v"
+    ansible.extra_vars = {
+      RANCHER_SERVER: "mi.org",
+      RANCHER_PORT: 8080,
+      REGISTRY_PORT: 5000,
+      ADMIN_USER: 'admin',
+      ADMIN_PASS: 'admin',
+      API_USER: 'api_admin',
+      API_PASS: 'api_admin'
+    }
   end
 end
